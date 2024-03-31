@@ -1,0 +1,5 @@
+dataset/**/*.csv
+airflow/dataset
+logs
+my-venv
+spark-warehouse

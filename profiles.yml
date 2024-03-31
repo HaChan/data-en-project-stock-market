@@ -1,0 +1,11 @@
+stock_market_data:
+  outputs:
+    dev:
+      type: spark
+      method: thrift
+      host: localhost
+      port: 10000
+        #database: [default]
+      schema: default
+      threads: 4
+  target: dev
