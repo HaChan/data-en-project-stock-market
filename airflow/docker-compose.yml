@@ -1,5 +1,9 @@
-x-airflow-common:
-  &airflow-common
+networks:
+  stock-market-network:
+    external:
+      name: data-en-project-stock-market_stock-market-network
+
+x-airflow-common: &airflow-common
   build:
     context: .
     network: host
@@ -15,6 +19,9 @@ x-airflow-common:
     - ./dataset:/opt/airflow/dataset:rw
     - ./dags:/opt/airflow/dags
   user: "${AIRFLOW_UID:-50000}:0"
+  networks:
+    - stock-market-network
+
 services:
   airflow-webserver:
     <<: *airflow-common
@@ -38,9 +45,7 @@ services:
     command:
       - -c
       - |
-        mkdir -p /opt/airflow/dataset
         echo "${AIRFLOW_UID}:0"
-        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/dataset
         exec /entrypoint airflow version
     environment:
       <<: *airflow-common-env
@@ -49,7 +54,7 @@ services:
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
       _PIP_ADDITIONAL_REQUIREMENTS: ''
-    user: "0:0"
+    user: "${AIRFLOW_UID:-50000}:0"
 
 volumes:
   airflow-data:
