@@ -1,9 +1,12 @@
 import os
+import yfinance as yf
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.sensors.filesystem import FileSensor
 from datetime import datetime, timedelta
 import pandas as pd
+from io import BytesIO
+from io import StringIO
+from minio import Minio
 
 default_args = {
     'owner': 'airflow',
@@ -11,34 +14,74 @@ default_args = {
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
 }
-airflow_home = os.getenv('AIRFLOW_HOME', '/opt/airflow')
-symbol_list_file = os.path.join(airflow_home, 'dataset/symbols_valid_meta.csv')
 
-def fetch_symbols():
+def minio_client():
+    return Minio(
+        "minioserver:9000",
+        access_key="minioadmin",
+        secret_key="minioadmin",
+        secure=False
+    )
+
+def create_bucket(client, name):
+    if not client.bucket_exists(name):
+        client.make_bucket(name)
+
+
+def fetch_symbols(bucket_name='stock-market', obj_name='list_symbols'):
     data = pd.read_csv("http://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt", sep='|')
     data_clean = data[data['Test Issue'] == 'N']
     symbols = data_clean['NASDAQ Symbol'].tolist()
-    valid_data = pd.DataFrame({'symbol': symbols})
-    valid_data.to_csv(symbol_list_file, index=False)
-    print('Total number of symbols extracted:', len(symbols))
+    symbols_df = pd.DataFrame({'symbol': symbols})
+    csv_buffer = BytesIO()
+    symbols_df.to_csv(csv_buffer, index=False)
+    buffer_size = csv_buffer.tell()
+    csv_buffer.seek(0)
 
-def download_historical_data(file_path, offset=0, limit=3000, period='max'):
-    symbols_data = pd.read_csv(file_path)
-    symbols = symbols_data['NASDAQ Symbol'].tolist()
+    client = minio_client()
+    create_bucket(client, bucket_name)
+
+    client.put_object(
+        bucket_name,
+        obj_name,
+        csv_buffer,
+        length=buffer_size #csv_buffer.tell()
+    )
+    print('Total number of symbols extracted:', len(symbols))
+    print(f'DataFrame saved successfully to Minio as {obj_name} in bucket {bucket_name}')
+
+def download_historical_data(bucket_name='stock-market', obj_name='list_symbols', offset=0, limit=3000, period='max'):
+    client = minio_client()
+    create_bucket(client, bucket_name)
+    response = client.get_object(bucket_name, obj_name)
+
+    symbols_data = pd.read_csv(BytesIO(response.data))
+    print(symbols_data)
+    symbols = symbols_data['symbol'].tolist()
 
     limit = limit if limit else len(symbols)
     end = min(offset + limit, len(symbols))
-    is_valid = [False] * len(symbols)
 
     for i in range(offset, end):
-        s = symbols[i]
-        data = yf.download(s, period=period)
+        symbol = symbols[i]
+        data = yf.download(symbol, period=period)
         if len(data.index) == 0:
             continue
+        data['symbol'] = symbol
+        csv_buffer = BytesIO()
+        data.to_csv(csv_buffer, index=False)
+        buffer_size = csv_buffer.tell()
+        csv_buffer.seek(0)
+        sym_name = f'symbol_hist/{symbol}'
 
-        is_valid[i] = True
-        data.to_csv('dataset/hist/{}.csv'.format(s))
-    print('Total number of valid symbols downloaded:', sum(is_valid))
+        client.put_object(
+            bucket_name,
+            sym_name,
+            csv_buffer,
+            length=buffer_size
+        )
+        #data.to_csv('dataset/hist/{}.csv'.format(s))
+        print(f'Downloaded {symbol} to {sym_name}')
 
 with DAG(
     dag_id='extract_symbol_list',
@@ -50,17 +93,11 @@ with DAG(
         python_callable=fetch_symbols,
         provide_context=True,
     )
-    file_sensor_task = FileSensor(
-        task_id='wait_for_symbols_file',
-        filepath=symbol_list_file,
-        timeout=60
-    )
     download_historical_data_task = PythonOperator(
         task_id='download_historical_data',
         python_callable=download_historical_data,
         provide_context=True,
-        trigger_rule='one_success',
-        op_kwargs={'file_path': symbol_list_file},
+        #op_kwargs={'limit': 10},
     )
 
-    extract_symbols_task >> file_sensor_task >> download_historical_data_task
+    extract_symbols_task >> download_historical_data_task

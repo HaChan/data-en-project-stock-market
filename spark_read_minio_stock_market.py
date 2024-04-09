@@ -4,14 +4,16 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import input_file_name, udf
 from pyspark.sql.types import StringType
 
-minio_url = "localhost:9000"
+minio_url = "minioserver:9000"
 access_key = "minioadmin"
 secret_key = "minioadmin"
 
 # Create a SparkSession
 spark = SparkSession.builder \
-    .appName("Read CSV from MinIO") \
-    .master("spark://localhost:7077") \
+    .appName("Read stock market CSV from MinIO") \
+    .master("spark://spark-master:7077") \
+    .config("spark.executor.memory", "1g") \
+    .config("spark.executor.core", "1") \
     .config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.1") \
     .config("spark.hadoop.fs.s3a.endpoint", f"http://{minio_url}") \
     .config("spark.hadoop.fs.s3a.access.key", access_key) \
@@ -19,23 +21,18 @@ spark = SparkSession.builder \
     .config("spark.hadoop.fs.s3a.path.style.access", True) \
     .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
     .getOrCreate()
-    #.config("spark.executor.memory", "1g") \
-    #.config("spark.executor.core", "1") \
 
 # Define the S3A URL to your file
-bucket_name = "test-stock-market"
-file_path = "symbol_list"
-file_url = f"s3a://{bucket_name}/{file_path}"
+bucket_name = "stock-market"
+symbols_path = "symbol_hist"
+symbol_hist_url = f"s3a://{bucket_name}/{symbols_path}/*"
 
-# Read the CSV file into a DataFrame
-df = spark.read.csv(file_url, header=True, inferSchema=True)
+symbol_list_path = "list_symbols"
+symbol_list_url = f"s3a://{bucket_name}/{symbol_list_path}"
 
-print("==============================================")
-print("==============================================")
-print("==============================================")
-print("==============================================")
+symbol_list_df = spark.read.csv(symbol_list_url, header=True, inferSchema=True)
+symbol_hist_df = spark.read.csv(symbol_hist_url, header=True, inferSchema=True)
 
-# Show the DataFrame content
 print(df.show())
 
 # Stop the SparkSession

@@ -15,10 +15,12 @@ default_args = {
 with DAG('spark_dag', default_args=default_args, schedule_interval=None) as dag:
     spark_task = SparkSubmitOperator(
         task_id='spark_job',
-        application='spark_submit_minio.py',
+        application='jobs/minio_spark_example.py',
         conn_id='spark_default',
         executor_memory='4g',
+        jars='misc/hadoop-aws-3.3.1.jar',
         executor_cores=2,
+        packages='org.apache.hadoop:hadoop-aws:3.3.1',
         application_args=['arg1', 'arg2']
     )
     spark_task

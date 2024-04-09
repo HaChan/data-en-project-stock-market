@@ -1,8 +1,6 @@
-version: '3.7'
 networks:
   stock-market-network:
-    external:
-      name: data-en-project-stock-market_stock-market-network
+    external: true
 
 services:
   minio:

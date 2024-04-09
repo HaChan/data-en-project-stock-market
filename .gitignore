@@ -1,5 +1,6 @@
 dataset/**/*.csv
 airflow/dataset
+__pycache__
 logs
 my-venv
 spark-warehouse

@@ -1,7 +1,6 @@
-version: '3'
-
 services:
   spark-master:
+    container_name: spark-master
     image: bitnami/spark:latest
     ports:
       - "4040:8080" # Spark Master UI
@@ -39,4 +38,4 @@ services:
 
 networks:
   stock-market-network:
-    driver: bridge
+    external: true
