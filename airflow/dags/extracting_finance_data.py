@@ -2,10 +2,10 @@ import os
 import yfinance as yf
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.contrib.operators.spark_submit_operator import SparkSubmitOperator
 from datetime import datetime, timedelta
 import pandas as pd
 from io import BytesIO
-from io import StringIO
 from minio import Minio
 
 default_args = {
@@ -29,12 +29,12 @@ def create_bucket(client, name):
 
 
 def fetch_symbols(bucket_name='stock-market', obj_name='list_symbols'):
-    data = pd.read_csv("http://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt", sep='|')
-    data_clean = data[data['Test Issue'] == 'N']
-    symbols = data_clean['NASDAQ Symbol'].tolist()
-    symbols_df = pd.DataFrame({'symbol': symbols})
+    df = pd.read_csv("http://www.nasdaqtrader.com/dynamic/SymDir/nasdaqtraded.txt", sep='|')
+    clean_df = df[df['Test Issue'] == 'N']
+    print('Total number of symbols extracted:', clean_df['Symbol'].count())
+
     csv_buffer = BytesIO()
-    symbols_df.to_csv(csv_buffer, index=False)
+    clean_df.to_csv(csv_buffer, index=False)
     buffer_size = csv_buffer.tell()
     csv_buffer.seek(0)
 
@@ -47,7 +47,6 @@ def fetch_symbols(bucket_name='stock-market', obj_name='list_symbols'):
         csv_buffer,
         length=buffer_size #csv_buffer.tell()
     )
-    print('Total number of symbols extracted:', len(symbols))
     print(f'DataFrame saved successfully to Minio as {obj_name} in bucket {bucket_name}')
 
 def download_historical_data(bucket_name='stock-market', obj_name='list_symbols', offset=0, limit=3000, period='max'):
@@ -57,31 +56,49 @@ def download_historical_data(bucket_name='stock-market', obj_name='list_symbols'
 
     symbols_data = pd.read_csv(BytesIO(response.data))
     print(symbols_data)
-    symbols = symbols_data['symbol'].tolist()
+    symbols = symbols_data['NASDAQ Symbol'].tolist()
 
     limit = limit if limit else len(symbols)
     end = min(offset + limit, len(symbols))
 
     for i in range(offset, end):
         symbol = symbols[i]
-        data = yf.download(symbol, period=period)
-        if len(data.index) == 0:
-            continue
-        data['symbol'] = symbol
-        csv_buffer = BytesIO()
-        data.to_csv(csv_buffer, index=False)
-        buffer_size = csv_buffer.tell()
-        csv_buffer.seek(0)
         sym_name = f'symbol_hist/{symbol}'
+        try:
+            stat = client.stat_object(bucket_name, sym_name)
+            print(f"Object '{sym_name}' exists in bucket '{bucket_name}'.")
+            continue
+        except Exception as e:
+            if 'NoSuchKey' in str(e):
+                print(f"Object '{sym_name}' does not exist in bucket '{bucket_name}'.")
+                download_then_upload_to_minio(symbol, period, client, bucket_name, sym_name)
+            else:
+                print(f"Error checking object existence: {e}")
 
-        client.put_object(
-            bucket_name,
-            sym_name,
-            csv_buffer,
-            length=buffer_size
-        )
-        #data.to_csv('dataset/hist/{}.csv'.format(s))
-        print(f'Downloaded {symbol} to {sym_name}')
+def download_then_upload_to_minio(symbol, period, client, bucket_name, sym_name):
+    try:
+        data = yf.download(symbol, period=period)
+    except Exception as e:
+        print(f'Error downloading {symbol}: {e}')
+        return
+
+    if len(data.index) == 0:
+        return
+
+    data['symbol'] = symbol
+    csv_buffer = BytesIO()
+    data.to_csv(csv_buffer)
+    buffer_size = csv_buffer.tell()
+    csv_buffer.seek(0)
+
+    client.put_object(
+        bucket_name,
+        sym_name,
+        csv_buffer,
+        length=buffer_size
+    )
+    #data.to_csv('dataset/hist/{}.csv'.format(s))
+    print(f'Downloaded {symbol} to {sym_name}')
 
 with DAG(
     dag_id='extract_symbol_list',
@@ -97,7 +114,16 @@ with DAG(
         task_id='download_historical_data',
         python_callable=download_historical_data,
         provide_context=True,
-        #op_kwargs={'limit': 10},
+        op_kwargs={'limit': None},
+    )
+    spark_minio_to_postgres = SparkSubmitOperator(
+        task_id='spark_job',
+        application='jobs/spark_load_from_minio_to_postgres.py',
+        conn_id='spark_default',
+        executor_memory='4g',
+        jars='misc/hadoop-aws-3.3.1.jar,misc/postgresql-42.2.18.jar',
+        executor_cores=2,
+        packages='org.apache.hadoop:hadoop-aws:3.3.1,org.postgresql:postgresql:42.2.18',
     )
 
-    extract_symbols_task >> download_historical_data_task
+    extract_symbols_task >> download_historical_data_task >> spark_minio_to_postgres

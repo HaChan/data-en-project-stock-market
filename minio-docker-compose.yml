@@ -6,6 +6,7 @@ services:
   minio:
     image: minio/minio
     container_name: minioserver
+    restart: on-failure
     volumes:
       - minio_data:/data
     ports:

@@ -1,0 +1,19 @@
+networks:
+  stock-market-network:
+    external: true
+
+services:
+  postgres:
+    image: postgres:16
+    restart: on-failure
+    container_name: stock-market-postgres
+    environment:
+      POSTGRES_DB: stock_market
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    networks:
+      - stock-market-network
