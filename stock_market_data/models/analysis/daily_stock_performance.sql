@@ -20,10 +20,13 @@ SELECT
   high,
   low,
   volume,
-  ROUND(((close - open) / open * 100)::numeric, 2) AS daily_change_pct,
+  CASE
+    WHEN open IS NULL OR open = 0 THEN NULL
+    ELSE ROUND(((close - open) / open * 100)::numeric, 2)
+  END AS daily_change_pct,
   high - low AS daily_spread,
   CASE
-    WHEN previous_volume IS NULL THEN NULL
+    WHEN previous_volume IS NULL OR previous_volume = 0 THEN NULL
     ELSE ROUND(((volume - previous_volume) / previous_volume * 100)::numeric, 2)
   END AS volume_change_pct
 FROM

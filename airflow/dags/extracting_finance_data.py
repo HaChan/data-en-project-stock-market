@@ -122,7 +122,7 @@ with DAG(
     )
     spark_minio_to_postgres = SparkSubmitOperator(
         task_id='spark_job',
-        application='jobs/minio_spark_example.py',
+        application='jobs/spark_load_from_minio_to_postgres.py',
         conn_id='spark_default',
         executor_memory='4g',
         jars='misc/hadoop-aws-3.3.1.jar,misc/postgresql-42.2.18.jar',
