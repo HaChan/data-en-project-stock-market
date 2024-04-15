@@ -1,0 +1,160 @@
+networks:
+  stock-market-network:
+    external: true
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: airflow.dockerfile
+    network: host
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  env_file:
+    - .env
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+    AIRFLOW__CORE__LOAD_EXAMPLES: False
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: True
+    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
+  volumes:
+    - airflow-data:/opt/airflow/
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/jobs:/opt/airflow/jobs
+    - ./airflow/misc:/opt/airflow/misc
+    - /var/run/docker.sock:/var/run/docker.sock
+  user: "${AIRFLOW_UID:-50000}:0"
+  networks:
+    - stock-market-network
+
+services:
+  # #############################################################################
+  # Airflow services
+  airflow-webserver:
+    <<: *airflow-common
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: webserver
+
+  airflow-scheduler:
+    <<: *airflow-common
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: scheduler
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        echo "${AIRFLOW_UID}:0"
+        exec /entrypoint airflow version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+      _PIP_ADDITIONAL_REQUIREMENTS: ''
+    user: "${AIRFLOW_UID:-50000}:0"
+
+  # #############################################################################
+  # Minio
+  minio:
+    image: minio/minio
+    container_name: minioserver
+    restart: on-failure
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    networks:
+      - stock-market-network
+
+  # #############################################################################
+  # Spark services
+  spark-master:
+    container_name: spark-master
+    image: bitnami/spark:latest
+    ports:
+      - "4040:8080" # Spark Master UI
+      - "7077:7077" # Spark Master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    networks:
+      - stock-market-network
+    volumes:
+      - ./dataset:/opt/bitnami/spark/dataset
+
+  spark-worker:
+    image: bitnami/spark:latest
+    ports:
+      - "8081:8081" # Spark Worker UI (optional, for multiple workers, use different ports)
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+    depends_on:
+      - spark-master
+    networks:
+      - stock-market-network
+    volumes:
+      - ./dataset:/opt/bitnami/spark/dataset
+
+  # #############################################################################
+  # Postgres
+  postgres:
+    image: postgres:16
+    restart: on-failure
+    container_name: stock-market-postgres
+    environment:
+      POSTGRES_DB: stock_market
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    networks:
+      - stock-market-network
+
+  # #############################################################################
+  # Metabase
+  metabase:
+    image: metabase/metabase:latest
+    container_name: stock-market-metabase
+    ports:
+      - "3000:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: stock_market
+      MB_DB_HOST: stock-market-postgres
+      MB_DB_USER: postgres
+      MB_DB_PASS: postgres
+      MB_DB_SCHEMA: metabase
+    networks:
+      - stock-market-network
+
+volumes:
+  airflow-data:
+  minio_data:

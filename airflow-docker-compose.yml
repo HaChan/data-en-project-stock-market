@@ -5,7 +5,12 @@ networks:
 x-airflow-common: &airflow-common
   build:
     context: .
+    dockerfile: airflow.dockerfile
     network: host
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  env_file:
+    - .env
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: SequentialExecutor
@@ -15,10 +20,10 @@ x-airflow-common: &airflow-common
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
   volumes:
     - airflow-data:/opt/airflow/
-    - ./dataset:/opt/airflow/dataset:rw
-    - ./dags:/opt/airflow/dags
-    - ./jobs:/opt/airflow/jobs
-    - ./misc:/opt/airflow/misc
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/jobs:/opt/airflow/jobs
+    - ./airflow/misc:/opt/airflow/misc
+    - /var/run/docker.sock:/var/run/docker.sock
   user: "${AIRFLOW_UID:-50000}:0"
   networks:
     - stock-market-network

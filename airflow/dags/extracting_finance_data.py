@@ -3,6 +3,8 @@ import yfinance as yf
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.contrib.operators.spark_submit_operator import SparkSubmitOperator
+from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
 from datetime import datetime, timedelta
 import pandas as pd
 from io import BytesIO
@@ -14,6 +16,8 @@ default_args = {
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
 }
+
+dbt_path = os.getenv('DBT_PATH')
 
 def minio_client():
     return Minio(
@@ -118,12 +122,27 @@ with DAG(
     )
     spark_minio_to_postgres = SparkSubmitOperator(
         task_id='spark_job',
-        application='jobs/spark_load_from_minio_to_postgres.py',
+        application='jobs/minio_spark_example.py',
         conn_id='spark_default',
         executor_memory='4g',
         jars='misc/hadoop-aws-3.3.1.jar,misc/postgresql-42.2.18.jar',
         executor_cores=2,
         packages='org.apache.hadoop:hadoop-aws:3.3.1,org.postgresql:postgresql:42.2.18',
     )
+    dbt_task = DockerOperator(
+        task_id='dbt_run',
+        image='dbt-stock-market',
+        api_version='auto',
+        auto_remove=True,
+        command='run',
+        docker_url='tcp://host.docker.internal:2375',
+        network_mode='stock-market-network',
+        mount_tmp_dir=False,
+        mounts=[
+            Mount(source=dbt_path, target='/usr/app/dbt/', type="bind"),
+            Mount(source=f"{dbt_path}/profiles.yml", target='/root/.dbt/profiles.yml', type="bind"),
+        ]
+    )
 
-    extract_symbols_task >> download_historical_data_task >> spark_minio_to_postgres
+    extract_symbols_task >> download_historical_data_task >> \
+        spark_minio_to_postgres >> dbt_task

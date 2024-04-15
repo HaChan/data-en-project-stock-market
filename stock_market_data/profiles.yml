@@ -5,7 +5,7 @@ stock_market_data:
       host: stock-market-postgres
       pass: postgres
       port: 5432
-      schema: default
+      schema: public
       threads: 4
       type: postgres
       user: postgres

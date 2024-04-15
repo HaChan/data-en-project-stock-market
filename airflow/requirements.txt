@@ -2,3 +2,4 @@ pandas==2.2.0
 yfinance==0.2.37
 apache-airflow-providers-apache-spark~=4.7
 minio==7.1.14
+apache-airflow-providers-docker

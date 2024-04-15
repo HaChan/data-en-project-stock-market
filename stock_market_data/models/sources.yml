@@ -1,0 +1,13 @@
+version: 2
+sources:
+- name: original
+  database: stock_market
+  schema: public
+  quoting:
+    database: false
+    schema: false
+    identifier: false
+  tables:
+    - name: symbols
+    - name: stock_data
+    - name: etf_data

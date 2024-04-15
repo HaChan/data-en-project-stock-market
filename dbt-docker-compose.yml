@@ -1,9 +1,16 @@
-version: '3'
+networks:
+  stock-market-network:
+    external: true
 
 services:
   dbt-base:
-    image: dbt-base-img
-    network_mode: host
+    build:
+      context: .
+      dockerfile: dbt.dockerfile
+      network: host
+    image: dbt-stock-market
     volumes:
-      - ./:/usr/app/
-      - ./profiles.yml:/root/.dbt/profiles.yml
+      - ./stock_market_data:/usr/app/dbt/
+      - ./stock_market_data/profiles.yml:/root/.dbt/profiles.yml
+    networks:
+      - stock-market-network
