@@ -19,7 +19,7 @@ This project create a pipeline that will extract all the symbols from NASDAQ and
 ## Architecture
 
 ```mermaid
-flowchart TB
+flowchart TD
     subgraph Airflow["Airflow"]
       NASDAQ["Extract NASDAQ Symbols"]
       YahooAPI["Extract Symbole's Historical Data"]
@@ -37,6 +37,14 @@ flowchart TB
     Postgres -->|Data for modeling| DBT
     DBT --> Metabase
 ```
+
+### Data flow
+
+1. Extract NASDAQ Symbols to MinIO
+2. Download historical data of symbols to MinIO
+3. Submit Spark job to Spark cluster to load and transform the data from MinIO to Postgres
+4. Create data models though DBT
+5. Create Metabase dashboard
 
 ## Setup
 
@@ -71,6 +79,12 @@ Installation
 docker compose up --build
 ```
 
+Setup tables in PostgreSQL:
+
+```
+psql -h localhost -U postgres -d stock_market < setup.sql
+```
+
 To submit Spark job to Airflow, you'll need to create Spark connection for Airflow first.
 
 ```
@@ -79,21 +93,25 @@ docker compose run airflow-webserver airflow connections add 'spark_stock_market
 
 ### Running
 
-1. Open Airflow UI: `http://localhost:8080`
+#### 1. Open Airflow UI: `http://localhost:8080`
 
-2. Run the `extracting_finanace_data` DAG in Airflow
+#### 2. Run the `extracting_finanace_data` DAG in Airflow
+
 ![extracting finance data](./assets/airflow_dag.png)
 
-3. Open Metabase: `http://localhost:3000`
+#### 3. Open Metabase: `http://localhost:3000`
 
 Setup postgres connection in Metabase using environment variables from [postgres-docker-compose.yml](./postgres-docker-compose.yml)
 
 Create these questions (using the public_stock_market schema):
 
+Top 100 trading volume symbols
 ![Top 100 trading volume](./assets/top_100_volume.png)
 
+Moving average of AMZN stock
 ![Moving average](./assets/moving_avg.png)
 
+Daily change percentage of MAANG stocks
 ![Daily change percentage](./assets/daily.png)
 
 ## Dashboard
